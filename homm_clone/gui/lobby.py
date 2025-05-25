@@ -268,6 +268,7 @@ class LobbyScreen:
 
             # Draw "Start Game" button if hosting
             if self.is_hosting:
+                print(f"DEBUG DRAW - Host's current_player_list for Start Game logic: {self.current_player_list}")
                 all_players_ready = False
                 min_players_to_start = 1 
                 if self.current_player_list and len(self.current_player_list) >= min_players_to_start:
@@ -329,6 +330,7 @@ class LobbyScreen:
                     return "toggle_ready_state" 
 
                 if self.is_hosting and self.buttons["start_game"]["rect"].collidepoint(mouse_pos):
+                    print(f"DEBUG EVENT - Host's current_player_list for Start Game logic: {self.current_player_list}")
                     all_players_ready = False
                     min_players_to_start = 1 
                     if self.current_player_list and len(self.current_player_list) >= min_players_to_start:
