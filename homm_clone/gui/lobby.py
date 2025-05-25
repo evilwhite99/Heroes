@@ -68,6 +68,10 @@ class LobbyScreen:
         self.faction_list_start_y = self.faction_rect.y + 60
         self.location_item_height = 40
         self.location_list_start_y = self.map_rect.y + 60 # Will be below game list
+        
+        # Player list display properties
+        self.player_list_start_y = self.player_rect.y + 60
+        self.player_item_height = 30
 
         self.faction_display_rects = [] # For click detection
         self.location_display_rects = [] # For click detection
@@ -146,8 +150,10 @@ class LobbyScreen:
             if game_y_offset > self.games_list_start_y + self.max_games_display_height - self.game_item_height: break
         
         # Display Starting Locations (below game list)
+        # Corrected: Pass x-coordinate directly, not to center_x_of_rect
+        title_x = self.map_rect.x + (self.map_rect.width // 2) - self.title_font.render("Starting Positions", True, self.colors["text_color"]).get_width() // 2
         self._draw_text("Starting Positions", self.title_font, self.colors["text_color"], screen, 
-                          self.map_rect.x + (self.map_rect.width //2), self.location_list_start_y - 30) # Centered title
+                          title_x, self.location_list_start_y - 40) # Adjusted Y for better spacing
 
         self.location_display_rects = []
         location_y_offset = self.location_list_start_y
