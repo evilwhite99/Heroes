@@ -62,6 +62,7 @@ class LobbyScreen:
         self.available_starting_locations = STARTING_LOCATIONS
         self.selected_faction_index = None
         self.selected_location_index = None
+        self.is_hosting = False # Added is_hosting flag
 
         # UI element properties for factions and locations
         self.faction_item_height = 40
@@ -77,6 +78,11 @@ class LobbyScreen:
         self.location_display_rects = [] # For click detection
         
         self.buttons = {
+            "host_game": {
+                "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 170, 200, 40), # Positioned above "Refresh Games"
+                "text": "Host New Game", 
+                "action": "host_game"
+            },
             "refresh_games": {
                 "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 120, 200, 40),
                 "text": "Refresh Games", "action": "refresh_games"
@@ -130,30 +136,37 @@ class LobbyScreen:
 
         # --- Map Preview / Game Discovery & Starting Location Area ---
         pygame.draw.rect(screen, self.colors["light_green"], self.map_rect)
-        self._draw_text("Available Games", self.title_font, self.colors["text_color"], screen, 0, 20, center_x_of_rect=self.map_rect)
-
-        # Display Discovered Games
-        game_y_offset = self.games_list_start_y
-        self.game_display_rects = [] 
-        for i, game in enumerate(self.discovered_games):
-            game_text = f"{game.get('game_name', 'N/A')} ({game.get('host_name', 'Unknown')})" # Simpler text
-            item_rect = pygame.Rect(self.map_rect.x + 20, game_y_offset, self.map_rect.width - 40, self.game_item_height)
-            self.game_display_rects.append(item_rect)
-
-            if i == self.selected_game_index:
-                pygame.draw.rect(screen, self.colors["highlight_color"], item_rect)
-            else: # Draw a light border for non-selected games for better UI
-                pygame.draw.rect(screen, self.colors["grey"], item_rect, 1)
-            
-            self._draw_text(game_text, self.small_font, self.colors["text_color"], screen, item_rect.x + 5, item_rect.y + (self.game_item_height - self.small_font.get_height()) // 2)
-            game_y_offset += self.game_item_height + 5 
-            if game_y_offset > self.games_list_start_y + self.max_games_display_height - self.game_item_height: break
         
-        # Display Starting Locations (below game list)
-        # Corrected: Pass x-coordinate directly, not to center_x_of_rect
+        if not self.is_hosting:
+            self._draw_text("Available Games", self.title_font, self.colors["text_color"], screen, 0, 20, center_x_of_rect=self.map_rect)
+            # Display Discovered Games
+            game_y_offset = self.games_list_start_y
+            self.game_display_rects = [] 
+            for i, game in enumerate(self.discovered_games):
+                game_text = f"{game.get('game_name', 'N/A')} ({game.get('host_name', 'Unknown')})" # Simpler text
+                item_rect = pygame.Rect(self.map_rect.x + 20, game_y_offset, self.map_rect.width - 40, self.game_item_height)
+                self.game_display_rects.append(item_rect)
+
+                if i == self.selected_game_index:
+                    pygame.draw.rect(screen, self.colors["highlight_color"], item_rect)
+                else: # Draw a light border for non-selected games for better UI
+                    pygame.draw.rect(screen, self.colors["grey"], item_rect, 1)
+                
+                self._draw_text(game_text, self.small_font, self.colors["text_color"], screen, item_rect.x + 5, item_rect.y + (self.game_item_height - self.small_font.get_height()) // 2)
+                game_y_offset += self.game_item_height + 5 
+                if game_y_offset > self.games_list_start_y + self.max_games_display_height - self.game_item_height: break
+        else: # We are hosting
+            self.game_display_rects = [] # Clear game rects if hosting
+            self._draw_text("Currently Hosting Game", self.title_font, self.colors["text_color"], screen, 0, 20, center_x_of_rect=self.map_rect)
+            # Optionally, display host-specific info here like IP, port, etc.
+            host_info_font = pygame.font.Font(None, 28)
+            self._draw_text(f"Your game is being broadcast.", host_info_font, self.colors["dark_grey"], screen, 0, self.games_list_start_y, center_x_of_rect=self.map_rect)
+
+
+        # Display Starting Locations (below game list or host info)
         title_x = self.map_rect.x + (self.map_rect.width // 2) - self.title_font.render("Starting Positions", True, self.colors["text_color"]).get_width() // 2
         self._draw_text("Starting Positions", self.title_font, self.colors["text_color"], screen, 
-                          title_x, self.location_list_start_y - 40) # Adjusted Y for better spacing
+                          title_x, self.location_list_start_y - 40) 
 
         self.location_display_rects = []
         location_y_offset = self.location_list_start_y
@@ -196,14 +209,26 @@ class LobbyScreen:
                 if player_y_offset > self.screen_height - 40: break
 
         # --- Buttons ---
-        pygame.draw.rect(screen, self.colors["button_color"], self.buttons["refresh_games"]["rect"])
-        self._draw_text(self.buttons["refresh_games"]["text"], self.font, self.colors["black"], screen, 0,0,
-                          center_x_of_rect=self.buttons["refresh_games"]["rect"], center_y_of_rect=self.buttons["refresh_games"]["rect"])
+        if not self.is_hosting:
+            # Draw "Host New Game" button
+            pygame.draw.rect(screen, self.colors["button_color"], self.buttons["host_game"]["rect"])
+            self._draw_text(self.buttons["host_game"]["text"], self.font, self.colors["black"], screen, 0,0,
+                              center_x_of_rect=self.buttons["host_game"]["rect"], center_y_of_rect=self.buttons["host_game"]["rect"])
+            
+            # Draw "Refresh Games" button
+            pygame.draw.rect(screen, self.colors["button_color"], self.buttons["refresh_games"]["rect"])
+            self._draw_text(self.buttons["refresh_games"]["text"], self.font, self.colors["black"], screen, 0,0,
+                              center_x_of_rect=self.buttons["refresh_games"]["rect"], center_y_of_rect=self.buttons["refresh_games"]["rect"])
 
-        if self.selected_game_index is not None and self.selected_game_index < len(self.discovered_games):
-            pygame.draw.rect(screen, self.colors["button_color"], self.buttons["connect_selected"]["rect"])
-            self._draw_text(self.buttons["connect_selected"]["text"], self.font, self.colors["black"], screen, 0,0,
-                              center_x_of_rect=self.buttons["connect_selected"]["rect"], center_y_of_rect=self.buttons["connect_selected"]["rect"])
+            # Draw "Connect to Selected Game" button
+            if self.selected_game_index is not None and self.selected_game_index < len(self.discovered_games):
+                pygame.draw.rect(screen, self.colors["button_color"], self.buttons["connect_selected"]["rect"])
+                self._draw_text(self.buttons["connect_selected"]["text"], self.font, self.colors["black"], screen, 0,0,
+                                  center_x_of_rect=self.buttons["connect_selected"]["rect"], center_y_of_rect=self.buttons["connect_selected"]["rect"])
+        else: # We are hosting, maybe show a "Stop Hosting" or "Start Game" button later
+            # For now, buttons related to joining/refreshing are hidden.
+            pass
+
 
         self._draw_text(self.connection_status_message, self.small_font, self.colors["dark_grey"], screen, 
                           self.map_rect.x + 20, self.screen_height - 35)
@@ -228,18 +253,25 @@ class LobbyScreen:
                         print(f"Selected location: {self.available_starting_locations[i]['name']}") # Debug
                         return None
 
-                # Check game selection clicks (from previous subtask)
-                for i, rect in enumerate(self.game_display_rects):
-                    if rect.collidepoint(mouse_pos):
-                        self.selected_game_index = i
-                        self.connection_status_message = f"Selected: {self.discovered_games[i].get('game_name', 'N/A')}"
-                        return None 
+                # Check game selection clicks
+                if not self.is_hosting: # Only allow game selection if not hosting
+                    for i, rect in enumerate(self.game_display_rects):
+                        if rect.collidepoint(mouse_pos):
+                            self.selected_game_index = i
+                            self.connection_status_message = f"Selected: {self.discovered_games[i].get('game_name', 'N/A')}"
+                            return None 
 
-                if self.buttons["refresh_games"]["rect"].collidepoint(mouse_pos):
+                # Check button clicks
+                if not self.is_hosting and self.buttons["host_game"]["rect"].collidepoint(mouse_pos):
+                    self.connection_status_message = "Attempting to host game..." 
+                    return "host_game"
+
+                if not self.is_hosting and self.buttons["refresh_games"]["rect"].collidepoint(mouse_pos):
                     self.connection_status_message = "Refreshing games..."
                     return "refresh_games" 
 
-                if self.selected_game_index is not None and \
+                if not self.is_hosting and \
+                   self.selected_game_index is not None and \
                    self.selected_game_index < len(self.discovered_games) and \
                    self.buttons["connect_selected"]["rect"].collidepoint(mouse_pos):
                     
