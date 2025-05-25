@@ -94,6 +94,17 @@ while running:
                                 game_host = None
                             lobby_screen.is_hosting = False # Ensure flag is false on failure
                 
+                elif action == "toggle_ready_state":
+                    if game_client.is_connected:
+                        # lobby_screen.local_player_is_ready was already toggled by LobbyScreen.handle_event
+                        current_local_ready_state = lobby_screen.local_player_is_ready 
+                        game_client.send_ready_state(current_local_ready_state)
+                        # lobby_screen.connection_status_message = f"Set ready to: {current_local_ready_state}" 
+                    else:
+                        lobby_screen.local_player_is_ready = False 
+                        lobby_screen.connection_status_message = "Cannot set ready state: Not connected."
+                        print("Error: Tried to toggle ready state but not connected.")
+
                 elif isinstance(action, tuple) and action[0] == "connect_to_game":
                     if game_client.is_connected: 
                         lobby_screen.connection_status_message = "Already connected. Disconnect first?"
@@ -122,6 +133,16 @@ while running:
         if is_connected_now:
             with game_client.lock: # Access game_client.player_list safely
                  lobby_screen.current_player_list = list(game_client.player_list) # Update with a copy
+            
+            # Ensure local UI reflects the server's view of this client's ready state
+            if game_client.player_id is not None: # Ensure local player has an ID
+                for player_data in lobby_screen.current_player_list:
+                    if player_data.get("id") == game_client.player_id:
+                        authoritative_local_ready_state = player_data.get("is_ready", False)
+                        if lobby_screen.local_player_is_ready != authoritative_local_ready_state:
+                            # print(f"Updating local_player_is_ready from {lobby_screen.local_player_is_ready} to {authoritative_local_ready_state} based on server update.") # Debug
+                            lobby_screen.local_player_is_ready = authoritative_local_ready_state
+                        break 
             
             if not was_connected: # Just connected
                 selected_game_name = "the game"

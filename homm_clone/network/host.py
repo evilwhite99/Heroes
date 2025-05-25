@@ -79,7 +79,11 @@ class GameHost:
         player_list_for_msg = []
         with self.lock:
             for client_info in self.connected_clients:
-                player_list_for_msg.append({"id": client_info["id"], "name": client_info["name"]})
+                player_list_for_msg.append({
+                    "id": client_info["id"], 
+                    "name": client_info["name"],
+                    "is_ready": client_info.get("is_ready", False) # Include ready status
+                })
         return {"players": player_list_for_msg}
 
     def broadcast_player_list_update(self):
@@ -106,7 +110,8 @@ class GameHost:
                         "id": player_id, 
                         "name": player_name, 
                         "socket": client_socket, 
-                        "address": addr
+                        "address": addr,
+                        "is_ready": False # Add this line
                     }
                     self.connected_clients.append(client_data)
                 
@@ -139,6 +144,20 @@ class GameHost:
                     print(f"Received LEAVE_REQUEST from Player ID: {msg.get('payload',{}).get('player_id')}")
                     # Validate if player_id matches this client if necessary
                     break # Exit loop, cleanup will handle removal
+                elif msg.get("type") == "set_ready_state":
+                    is_ready_payload = msg.get("payload", {}).get("is_ready")
+                    if isinstance(is_ready_payload, bool):
+                        with self.lock: # Ensure thread-safe update
+                            # Find the client in self.connected_clients and update their 'is_ready' status
+                            # The 'player_id' for the current client is known in this thread
+                            for client_info in self.connected_clients:
+                                if client_info["id"] == player_id: # player_id is from the initial join
+                                    client_info["is_ready"] = is_ready_payload
+                                    print(f"Host: Player {player_id} ({client_info['name']}) set ready state to {is_ready_payload}")
+                                    break
+                        self.broadcast_player_list_update() # Broadcast the change to all clients
+                    else:
+                        print(f"Host: Invalid payload for set_ready_state from player {player_id}: {msg.get('payload')}")
                 # Add other message type handlers here (e.g., game actions)
                 else:
                     print(f"Received unhandled message from {player_id}: {msg}")

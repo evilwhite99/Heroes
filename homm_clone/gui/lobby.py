@@ -63,6 +63,7 @@ class LobbyScreen:
         self.selected_faction_index = None
         self.selected_location_index = None
         self.is_hosting = False # Added is_hosting flag
+        self.local_player_is_ready = False # Added local_player_is_ready flag
 
         # UI element properties for factions and locations
         self.faction_item_height = 40
@@ -77,6 +78,10 @@ class LobbyScreen:
         self.faction_display_rects = [] # For click detection
         self.location_display_rects = [] # For click detection
         
+        button_width_player_panel = self.player_rect.width - 40 # Make it wide
+        ready_button_y = self.screen_height - 70 
+        ready_button_x = self.player_rect.x + (self.player_rect.width - button_width_player_panel) // 2
+
         self.buttons = {
             "host_game": {
                 "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 170, 200, 40), # Positioned above "Refresh Games"
@@ -90,6 +95,16 @@ class LobbyScreen:
             "connect_selected": {
                 "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 70, 250, 40), 
                 "text": "Connect to Selected Game", "action": "connect_selected"
+            },
+            "toggle_ready": {
+              "rect": pygame.Rect(ready_button_x, ready_button_y, button_width_player_panel, 40),
+              "text": "Ready", # Initial text, will be dynamic
+              "action": "toggle_ready_state"
+            },
+            "start_game": { # Corrected Y position
+              "rect": pygame.Rect(ready_button_x, self.buttons["toggle_ready"]["rect"].bottom + 10, button_width_player_panel, 40),
+              "text": "Start Game",
+              "action": "initiate_game_start"
             }
         }
         self.game_item_height = 30
@@ -202,8 +217,12 @@ class LobbyScreen:
             for i, player in enumerate(self.current_player_list):
                 player_name = player.get("name", "Unknown Player")
                 player_id = player.get("id", "N/A")
-                player_text = f"ID: {player_id} - {player_name}"
-                self._draw_text(player_text, self.small_font, self.colors["text_color"], screen, 
+                is_ready = player.get("is_ready", False)
+                player_text = f"ID: {player_id} - {player_name}{' [READY]' if is_ready else ''}"
+                
+                text_color = self.colors["highlight_color"] if is_ready else self.colors["text_color"]
+
+                self._draw_text(player_text, self.small_font, text_color, screen, 
                                   self.player_rect.x + 15, player_y_offset)
                 player_y_offset += self.player_item_height
                 if player_y_offset > self.screen_height - 40: break
@@ -227,7 +246,31 @@ class LobbyScreen:
                                   center_x_of_rect=self.buttons["connect_selected"]["rect"], center_y_of_rect=self.buttons["connect_selected"]["rect"])
         else: # We are hosting, maybe show a "Stop Hosting" or "Start Game" button later
             # For now, buttons related to joining/refreshing are hidden.
-            pass
+            pass # "Ready" button is drawn below, after this conditional block
+        
+        # Draw "Ready/Unready" button if connected or hosting
+        if self.current_player_list or self.is_hosting: 
+            ready_button_current_text = "Unready" if self.local_player_is_ready else "Ready"
+            button_color_ready = self.colors["button_hover"] if self.local_player_is_ready else self.colors["button_color"]
+            pygame.draw.rect(screen, button_color_ready, self.buttons["toggle_ready"]["rect"])
+            self._draw_text(ready_button_current_text, self.font, self.colors["black"], screen, 0,0,
+                              center_x_of_rect=self.buttons["toggle_ready"]["rect"], 
+                              center_y_of_rect=self.buttons["toggle_ready"]["rect"])
+
+            # Draw "Start Game" button if hosting
+            if self.is_hosting:
+                all_players_ready = False
+                min_players_to_start = 1 
+                if self.current_player_list and len(self.current_player_list) >= min_players_to_start:
+                    all_players_ready = all(player.get("is_ready", False) for player in self.current_player_list)
+
+                button_color_start = self.colors["button_color"] if all_players_ready else self.colors["dark_grey"]
+                text_color_start = self.colors["black"] if all_players_ready else self.colors["grey"] 
+
+                pygame.draw.rect(screen, button_color_start, self.buttons["start_game"]["rect"])
+                self._draw_text(self.buttons["start_game"]["text"], self.font, text_color_start, screen, 0,0,
+                                  center_x_of_rect=self.buttons["start_game"]["rect"],
+                                  center_y_of_rect=self.buttons["start_game"]["rect"])
 
 
         self._draw_text(self.connection_status_message, self.small_font, self.colors["dark_grey"], screen, 
@@ -269,6 +312,24 @@ class LobbyScreen:
                 if not self.is_hosting and self.buttons["refresh_games"]["rect"].collidepoint(mouse_pos):
                     self.connection_status_message = "Refreshing games..."
                     return "refresh_games" 
+
+                if (self.current_player_list or self.is_hosting) and \
+                   self.buttons["toggle_ready"]["rect"].collidepoint(mouse_pos):
+                    self.local_player_is_ready = not self.local_player_is_ready 
+                    print(f"Local ready state toggled to: {self.local_player_is_ready}") 
+                    return "toggle_ready_state" 
+
+                if self.is_hosting and self.buttons["start_game"]["rect"].collidepoint(mouse_pos):
+                    all_players_ready = False
+                    min_players_to_start = 1 
+                    if self.current_player_list and len(self.current_player_list) >= min_players_to_start:
+                        all_players_ready = all(player.get("is_ready", False) for player in self.current_player_list)
+                    
+                    if all_players_ready:
+                        return "initiate_game_start"
+                    else:
+                        self.connection_status_message = "All players must be ready to start."
+                        return None 
 
                 if not self.is_hosting and \
                    self.selected_game_index is not None and \
