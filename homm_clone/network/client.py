@@ -20,34 +20,34 @@ def send_message(sock, message_type, payload):
     except Exception as e:
         print(f"Error sending message ({message_type}): {e}")
 
-def receive_message(sock):
-    """Helper function to receive a JSON message."""
-    try:
-        if sock and sock.fileno() != -1: # Check if socket is valid
-            # Simplified receive, assumes one JSON message per recv call for now
-            data = sock.recv(MAX_BUFFER_SIZE)
-            if not data:
-                print("Receive: Connection closed by server (no data).")
-                return None # Connection closed
+# def receive_message(sock):
+#     """Helper function to receive a JSON message."""
+#     try:
+#         if sock and sock.fileno() != -1: # Check if socket is valid
+#             # Simplified receive, assumes one JSON message per recv call for now
+#             data = sock.recv(MAX_BUFFER_SIZE)
+#             if not data:
+#                 print("Receive: Connection closed by server (no data).")
+#                 return None # Connection closed
             
-            decoded_data = data.decode('utf-8')
-            print(f"Received raw: {decoded_data}") # Debug print
-            return json.loads(decoded_data)
-        else:
-            print("Cannot receive: Socket is not valid.")
-            return None
-    except json.JSONDecodeError as e:
-        print(f"JSON Decode Error: {e} - Data: {data if 'data' in locals() else 'N/A'}")
-        return None
-    except socket.timeout:
-        print("Receive: Socket timeout.") # Expected if socket has timeout set
-        return None
-    except socket.error as e:
-        print(f"Socket error during receive: {e}")
-        return None 
-    except Exception as e:
-        print(f"Error receiving message: {e}")
-        return None
+#             decoded_data = data.decode('utf-8')
+#             print(f"Received raw: {decoded_data}") # Debug print
+#             return json.loads(decoded_data)
+#         else:
+#             print("Cannot receive: Socket is not valid.")
+#             return None
+#     except json.JSONDecodeError as e:
+#         print(f"JSON Decode Error: {e} - Data: {data if 'data' in locals() else 'N/A'}")
+#         return None
+#     except socket.timeout:
+#         print("Receive: Socket timeout.") # Expected if socket has timeout set
+#         return None
+#     except socket.error as e:
+#         print(f"Socket error during receive: {e}")
+#         return None 
+#     except Exception as e:
+#         print(f"Error receiving message: {e}")
+#         return None
 
 class GameClient:
     def __init__(self, player_name="TestClient"):
@@ -57,6 +57,7 @@ class GameClient:
         self.player_name = player_name # Added player_name
         self.player_id = None
         self.player_list = []
+        self.receive_buffer = b"" # Added receive buffer
         
         self._listening_thread = None
         self._is_connected = False # True after JOIN_ACK is successful
@@ -123,43 +124,127 @@ class GameClient:
 
     def _listen_for_server_messages_thread(self):
         print("Listening for server messages thread started.")
-        was_connected_when_loop_started = False # Initialize before loop
-        while self._is_connected and self.tcp_socket:
-            was_connected_when_loop_started = self._is_connected # Set at the start of each loop iteration
-            msg = receive_message(self.tcp_socket)
-            if msg is None:
-                print("Server connection lost or socket closed.")
-                print("Server message listener: Connection lost or socket closed.")
-                # self._is_connected should be False already if receive_message returned None due to socket error/closure
-                # but if it's due to _is_connected being set False elsewhere (e.g. disconnect()), this is fine.
-                if self._is_connected: # if it was true, set it false
-                    self._is_connected = False
-                break # Exit thread
+        self.tcp_socket.settimeout(1.0) # Set a timeout for recv for non-blocking checks
 
-            msg_type = msg.get("type")
-            payload = msg.get("payload")
-
-            if msg_type == "player_list_update":
-                with self.lock:
-                    self.player_list = payload.get("players", [])
-                print(f"\n--- Player List Updated ---")
-                for player in self.player_list:
-                    print(f"  ID: {player.get('id')}, Name: {player.get('name')}")
-                print("---------------------------\n")
-            elif msg_type == "join_ack": # Should ideally be handled in connect, but good to log if seen here
-                print(f"Received unexpected JOIN_ACKNOWLEDGEMENT: {payload}")
-            elif msg_type == "error":
-                 print(f"Error from server: {payload.get('message')}")
-            else:
-                print(f"Received unhandled message from server: Type={msg_type}, Payload={payload}")
+        was_connected_when_loop_started = self._is_connected
         
+        while self._is_connected and self.tcp_socket:
+            was_connected_when_loop_started = self._is_connected # Update at the start of each outer loop
+
+            try:
+                # Receive data from socket
+                data = self.tcp_socket.recv(MAX_BUFFER_SIZE)
+                if not data:
+                    print("Server connection closed (recv returned empty).")
+                    if self._is_connected: self._is_connected = False
+                    break # Exit outer loop
+                
+                self.receive_buffer += data
+                # print(f"Recv: Appended {len(data)} bytes. Buffer size: {len(self.receive_buffer)}") # Debug
+
+            except socket.timeout:
+                # print("Socket recv timeout, continuing.") # Can be very noisy
+                continue # No data received this time, check _is_connected and loop again
+            except socket.error as e:
+                print(f"Socket error during recv: {e}")
+                if self._is_connected: self._is_connected = False
+                break # Exit outer loop
+            except Exception as e: # Other unexpected errors
+                print(f"Unexpected error during recv: {e}")
+                if self._is_connected: self._is_connected = False
+                break
+
+            # Inner loop to process messages from buffer
+            while self.receive_buffer:
+                try:
+                    buffer_str = self.receive_buffer.decode('utf-8')
+                except UnicodeDecodeError as ude:
+                    print(f"UnicodeDecodeError in buffer: {ude}. Buffer (partial): {self.receive_buffer[:100]}")
+                    # Strategy: find next '{' and discard problematic part
+                    next_brace_index = self.receive_buffer.find(b'{')
+                    if next_brace_index != -1:
+                        print(f"Discarding {next_brace_index} bytes due to UnicodeDecodeError.")
+                        self.receive_buffer = self.receive_buffer[next_brace_index:]
+                    else:
+                        print("No '{' found after UnicodeDecodeError, clearing buffer.")
+                        self.receive_buffer = b"" # Clear buffer if no resync point
+                    break # Break inner loop, wait for more data to form a valid string
+
+                
+                # Attempt to find a complete JSON message
+                # This is a simplified brace counting; robust parsing is more complex.
+                # It assumes messages are not nested in a way that fools the brace count.
+                start_brace_index = -1
+                brace_count = 0
+                end_brace_index = -1
+
+                for i, char_code in enumerate(self.receive_buffer): # Iterate over bytes
+                    char = chr(char_code) # Convert byte to char for brace checking
+                    if char == '{':
+                        if start_brace_index == -1:
+                            start_brace_index = i
+                        brace_count += 1
+                    elif char == '}':
+                        if start_brace_index != -1: # Ensure we are inside a potential message
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end_brace_index = i
+                                break # Found a complete JSON object
+                
+                if start_brace_index != -1 and end_brace_index != -1 and brace_count == 0:
+                    # Potential message found
+                    message_bytes = self.receive_buffer[start_brace_index : end_brace_index + 1]
+                    
+                    try:
+                        msg_str = message_bytes.decode('utf-8')
+                        msg = json.loads(msg_str)
+                        print(f"Parsed message: {msg_str}") # Debug print for parsed message
+
+                        # ---- Message Processing Logic ----
+                        msg_type = msg.get("type")
+                        payload = msg.get("payload")
+
+                        if msg_type == "player_list_update":
+                            with self.lock:
+                                self.player_list = payload.get("players", [])
+                            print(f"\n--- Player List Updated (Thread) ---")
+                            for player in self.player_list:
+                                print(f"  ID: {player.get('id')}, Name: {player.get('name')}")
+                            print("----------------------------------\n")
+                        elif msg_type == "join_ack":
+                            print(f"Received unexpected JOIN_ACKNOWLEDGEMENT in listener: {payload}")
+                        elif msg_type == "error":
+                            print(f"Error from server: {payload.get('message')}")
+                        else:
+                            print(f"Received unhandled message from server: Type={msg_type}, Payload={payload}")
+                        # ---- End Message Processing Logic ----
+
+                        # Remove processed message from buffer
+                        self.receive_buffer = self.receive_buffer[end_brace_index + 1:]
+                        # print(f"Processed message. Remaining buffer size: {len(self.receive_buffer)}") # Debug
+                        continue # Continue inner loop for more messages in buffer
+
+                    except json.JSONDecodeError as je:
+                        print(f"JSONDecodeError: {je}. Problematic part: {message_bytes.decode('utf-8', errors='replace')}")
+                        # Recovery: discard the problematic part and try to find next message
+                        self.receive_buffer = self.receive_buffer[end_brace_index + 1:]
+                        print(f"Discarded problematic JSON. Remaining buffer: {len(self.receive_buffer)}")
+                        # Potentially could break inner loop here if errors are frequent
+                        # to wait for more data, but for now, let it try again with remaining buffer.
+                        continue 
+                    except UnicodeDecodeError as ude_msg: # Should be caught by initial buffer decode, but as fallback
+                        print(f"UnicodeDecodeError for specific message: {ude_msg}. Message bytes: {message_bytes}")
+                        self.receive_buffer = self.receive_buffer[end_brace_index + 1:]
+                        continue
+
+                else: # No complete message found in current buffer
+                    # print(f"No complete message in buffer ({len(self.receive_buffer)} bytes). Waiting for more data.") # Debug
+                    break # Break inner loop, wait for more data from recv()
+
+        # --- End of outer while loop ---
         print("Server message listening thread stopped.")
-        # If loop exits, means connection is likely down. 
-        # Call disconnect only if it was an unexpected closure.
-        # server_initiated helps prevent re-sending leave messages or double-closing.
-        print(f"Server message listening thread stopped. self._is_connected is {self._is_connected}, was_connected_when_loop_started is {was_connected_when_loop_started}")
-        if self.tcp_socket and was_connected_when_loop_started: # Check if connection was active at loop start
-            print("Server message listener: Connection seems to have dropped unexpectedly or needs cleanup.")
+        if self.tcp_socket and was_connected_when_loop_started:
+            print("Server message listener: Cleaning up connection (thread end).")
             self.disconnect(server_initiated=True, called_from_listener_thread=True)
 
 
@@ -169,22 +254,76 @@ class GameClient:
             return False
 
         self.player_name = player_name_to_send or self.player_name # Use provided or default
+        self.receive_buffer = b"" # Clear buffer for new connection
 
         try:
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             print(f"Attempting to connect to {host_ip}:{tcp_port}...")
             self.tcp_socket.connect((host_ip, tcp_port))
             self.server_address = (host_ip, tcp_port)
-            # Do not set _is_connected = True here. Set it only after successful JOIN_ACK.
             print(f"TCP connection established with {self.server_address}. Sending JOIN_REQUEST...")
 
             # Send JOIN_REQUEST
             join_payload = {"name": self.player_name}
             send_message(self.tcp_socket, "join_request", join_payload)
 
-            # Wait for JOIN_ACKNOWLEDGEMENT
-            ack_msg = receive_message(self.tcp_socket)
-            if ack_msg and ack_msg.get("type") == "join_ack":
+            # Wait for JOIN_ACKNOWLEDGEMENT - This needs to use the new buffered receive logic
+            # For simplicity in connect_to_host, we'll do a blocking receive for the ack,
+            # assuming it comes quickly and is not mixed with other messages *before* join_ack.
+            # A more robust solution might involve starting the listener thread earlier
+            # and using a queue or event to signal when join_ack is received.
+            
+            # Temporary direct recv for JOIN_ACK for simplicity during connect
+            ack_data = b""
+            try:
+                # Set a short timeout for this specific receive
+                self.tcp_socket.settimeout(5.0) # 5 seconds for ACK
+                temp_buffer = b""
+                while True: # Loop to find the first complete JSON message
+                    chunk = self.tcp_socket.recv(MAX_BUFFER_SIZE)
+                    if not chunk:
+                         raise socket.error("Connection closed while waiting for JOIN_ACK")
+                    temp_buffer += chunk
+                    try:
+                        # Attempt to find and parse a JSON message from temp_buffer
+                        temp_buffer_str = temp_buffer.decode('utf-8')
+                        # Simple check: find first { and last }
+                        s_idx = temp_buffer_str.find('{')
+                        e_idx = -1
+                        if s_idx != -1:
+                            bal = 0
+                            for i in range(s_idx, len(temp_buffer_str)):
+                                if temp_buffer_str[i] == '{': bal += 1
+                                elif temp_buffer_str[i] == '}': bal -=1
+                                if bal == 0: # Corrected brace balance check
+                                     e_idx = i; break 
+                        
+                        if s_idx != -1 and e_idx != -1:
+                            ack_str = temp_buffer_str[s_idx : e_idx+1]
+                            ack_msg_json = json.loads(ack_str)
+                            # Store any remaining data from temp_buffer into the main receive_buffer
+                            # Corrected: Convert the remaining part of temp_buffer_str back to bytes
+                            remaining_bytes = temp_buffer_str[e_idx+1:].encode('utf-8')
+                            self.receive_buffer += remaining_bytes 
+                            break # Got our ack_msg_json
+                        elif len(temp_buffer) > MAX_BUFFER_SIZE * 2: # Safety break
+                            raise socket.error("JOIN_ACK too long or not found")
+                            
+                    except json.JSONDecodeError:
+                        # Incomplete message, continue receiving if buffer not too large
+                        if len(temp_buffer) > MAX_BUFFER_SIZE * 2: # Avoid excessively large buffer
+                            raise socket.error("Error decoding JOIN_ACK or message too large")
+                        continue # Continue to recv more data
+                    except UnicodeDecodeError:
+                         if len(temp_buffer) > MAX_BUFFER_SIZE * 2:
+                            raise socket.error("Unicode error in JOIN_ACK")
+                         continue # Continue to recv more data
+            finally:
+                # Restore original timeout for the listener thread if it was set
+                if self.tcp_socket: self.tcp_socket.settimeout(1.0) 
+
+            ack_msg = ack_msg_json # ack_msg was ack_data
+            if ack_msg and ack_msg.get("type") == "join_ack": # ack_msg is now ack_msg_json
                 payload = ack_msg.get("payload", {})
                 self.player_id = payload.get("player_id")
                 with self.lock:
