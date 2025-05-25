@@ -78,13 +78,22 @@ class LobbyScreen:
         self.faction_display_rects = [] # For click detection
         self.location_display_rects = [] # For click detection
         
-        button_width_player_panel = self.player_rect.width - 40 # Make it wide
-        ready_button_y = self.screen_height - 70 
-        ready_button_x = self.player_rect.x + (self.player_rect.width - button_width_player_panel) // 2
+        # Common properties for buttons in the player panel
+        button_width_player_panel = self.player_rect.width - 40 
+        button_height_player_panel = 40 # Consistent height
+        player_panel_button_center_x = self.player_rect.x + self.player_rect.width // 2
+        
+        toggle_ready_button_y = self.screen_height - 120 # Positioned higher
+        toggle_ready_button_x = player_panel_button_center_x - button_width_player_panel // 2
+        toggle_ready_rect = pygame.Rect(toggle_ready_button_x, toggle_ready_button_y, button_width_player_panel, button_height_player_panel)
+
+        start_game_button_y = toggle_ready_rect.bottom + 10 
+        start_game_button_x = player_panel_button_center_x - button_width_player_panel // 2
+        start_game_rect = pygame.Rect(start_game_button_x, start_game_button_y, button_width_player_panel, button_height_player_panel)
 
         self.buttons = {
             "host_game": {
-                "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 170, 200, 40), # Positioned above "Refresh Games"
+                "rect": pygame.Rect(self.map_rect_x + 20, self.screen_height - 170, 200, 40),
                 "text": "Host New Game", 
                 "action": "host_game"
             },
@@ -97,12 +106,12 @@ class LobbyScreen:
                 "text": "Connect to Selected Game", "action": "connect_selected"
             },
             "toggle_ready": {
-              "rect": pygame.Rect(ready_button_x, ready_button_y, button_width_player_panel, 40),
-              "text": "Ready", # Initial text, will be dynamic
+              "rect": toggle_ready_rect, # Use the calculated rect
+              "text": "Ready", 
               "action": "toggle_ready_state"
             },
-            "start_game": { # Corrected Y position
-              "rect": pygame.Rect(ready_button_x, self.buttons["toggle_ready"]["rect"].bottom + 10, button_width_player_panel, 40),
+            "start_game": {
+              "rect": start_game_rect, # Use the calculated rect
               "text": "Start Game",
               "action": "initiate_game_start"
             }
