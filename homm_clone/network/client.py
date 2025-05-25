@@ -33,6 +33,11 @@ class GameClient:
         self.player_list = []
         self.receive_buffer = b"" 
         
+        # Attributes for game start state
+        self.game_has_started = False
+        self.game_map_cols = None
+        self.game_map_rows = None
+        
         self._listening_thread = None
         self._is_connected = False 
         self.lock = threading.Lock() 
@@ -158,13 +163,21 @@ class GameClient:
                                 self.player_list = payload.get("players", [])
                             print(f"\n--- Player List Updated (Thread) ---")
                             for player in self.player_list:
-                                # MODIFICATION FOR STEP 1a
                                 print(f"  ID: {player.get('id')}, Name: {player.get('name')}, Ready: {player.get('is_ready')}")
                             print("----------------------------------\n")
                         elif msg_type == "join_ack":
                             print(f"Received unexpected JOIN_ACKNOWLEDGEMENT in listener: {payload}")
                         elif msg_type == "error":
                             print(f"Error from server: {payload.get('message')}")
+                        elif msg_type == "game_started": # MODIFIED FOR STEP 2b
+                            map_data = payload 
+                            if map_data and "map_cols" in map_data and "map_rows" in map_data:
+                                self.game_map_cols = map_data["map_cols"]
+                                self.game_map_rows = map_data["map_rows"]
+                                self.game_has_started = True # Signal main.py
+                                print(f"Client: GAME_STARTED received. Map: {self.game_map_cols}x{self.game_map_rows}")
+                            else:
+                                print(f"Client: Received 'game_started' with invalid map_data: {map_data}")
                         else:
                             print(f"Received unhandled message from server: Type={msg_type}, Payload={payload}")
 
@@ -246,7 +259,6 @@ class GameClient:
                 self._is_connected = True 
                 print(f"Successfully joined game. Player ID: {self.player_id}")
                 
-                # MODIFICATION FOR STEP 1b
                 print("--- Initial Player List (from JOIN_ACK) ---")
                 if self.player_list:
                     for player_info in self.player_list:
@@ -254,7 +266,6 @@ class GameClient:
                 else:
                     print("  (empty)")
                 print("-------------------------------------------")
-                # Old print line: print(f"Initial player list: {self.player_list}") # This can be removed or kept
 
                 self._listening_thread = threading.Thread(target=self._listen_for_server_messages_thread, daemon=True)
                 self._listening_thread.start()
@@ -296,6 +307,12 @@ class GameClient:
         if self._listening_thread and self._listening_thread.is_alive() and not called_from_listener_thread:
             self._listening_thread.join(timeout=1.0) 
         self.player_id = None
+        
+        # MODIFICATION FOR STEP 2c
+        self.game_has_started = False
+        self.game_map_cols = None
+        self.game_map_rows = None
+
         print(f"Client disconnected state processed.")
 
     def send_ready_state(self, is_ready):

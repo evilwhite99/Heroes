@@ -93,6 +93,22 @@ class GameHost:
             for client_info in self.connected_clients:
                 send_message(client_info["socket"], "player_list_update", payload)
 
+    def broadcast_game_started(self, map_cols, map_rows):
+        print(f"Host: Broadcasting GAME_STARTED. Map Dimensions: {map_cols}x{map_rows}")
+        payload = {"map_cols": map_cols, "map_rows": map_rows}
+        # No need for self.lock here if just reading self.connected_clients for sockets,
+        # but send_message should be thread-safe with socket operations.
+        # If self.connected_clients could be modified elsewhere CONCURRENTLY with this loop,
+        # then a lock or iterating a copy would be needed.
+        # Current _handle_client_thread's removal is locked, appends are locked. Iteration for send is generally safe.
+        
+        clients_copy = []
+        with self.lock: # Make a copy of client sockets to iterate over
+            clients_copy = list(self.connected_clients) # Iterate over a copy
+
+        for client_info in clients_copy:
+            send_message(client_info["socket"], "game_started", payload)
+
     def _handle_client_thread(self, conn, addr):
         print(f"New client connection from {addr}. Waiting for JOIN_REQUEST...")
         player_id = None
