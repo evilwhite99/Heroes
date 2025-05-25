@@ -123,7 +123,9 @@ class GameClient:
 
     def _listen_for_server_messages_thread(self):
         print("Listening for server messages thread started.")
+        was_connected_when_loop_started = False # Initialize before loop
         while self._is_connected and self.tcp_socket:
+            was_connected_when_loop_started = self._is_connected # Set at the start of each loop iteration
             msg = receive_message(self.tcp_socket)
             if msg is None:
                 print("Server connection lost or socket closed.")
@@ -155,10 +157,10 @@ class GameClient:
         # If loop exits, means connection is likely down. 
         # Call disconnect only if it was an unexpected closure.
         # server_initiated helps prevent re-sending leave messages or double-closing.
-        print(f"Server message listening thread stopped. self._is_connected is {self._is_connected}")
-        if self.tcp_socket and self._is_connected: # If socket still exists and we thought we were connected
-            print("Server message listener: Connection seems to have dropped unexpectedly.")
-            self.disconnect(server_initiated=True) 
+        print(f"Server message listening thread stopped. self._is_connected is {self._is_connected}, was_connected_when_loop_started is {was_connected_when_loop_started}")
+        if self.tcp_socket and was_connected_when_loop_started: # Check if connection was active at loop start
+            print("Server message listener: Connection seems to have dropped unexpectedly or needs cleanup.")
+            self.disconnect(server_initiated=True, called_from_listener_thread=True)
 
 
     def connect_to_host(self, host_ip, tcp_port, player_name_to_send=None):
@@ -224,13 +226,13 @@ class GameClient:
     def connect(self, host_ip, port, player_name_override=None):
         return self.connect_to_host(host_ip, port, player_name_to_send=player_name_override)
 
-    def disconnect(self, server_initiated=False):
+    def disconnect(self, server_initiated=False, called_from_listener_thread=False):
         # Check if there's anything to disconnect from
         if not self.tcp_socket and not self._is_connected:
             # print("Client already disconnected.") # Can be noisy
             return
 
-        print(f"Disconnecting from {self.server_address if self.server_address else 'unknown server'}...")
+        print(f"Disconnecting from {self.server_address if self.server_address else 'unknown server'} (server_initiated={server_initiated}, called_from_listener={called_from_listener_thread})...")
         
         # Signal listening thread to stop and update connection state
         # This order helps prevent race conditions where listening thread might try to use a closing socket
@@ -253,9 +255,9 @@ class GameClient:
             except socket.error as e:
                 print(f"Error closing socket: {e}")
         
-        if self._listening_thread and self._listening_thread.is_alive():
-            # print("Waiting for listening thread to stop...")
-            self._listening_thread.join(timeout=1.0) # Reduced timeout
+        if self._listening_thread and self._listening_thread.is_alive() and not called_from_listener_thread:
+            # print("Waiting for listening thread to stop (from non-listener context)...")
+            self._listening_thread.join(timeout=1.0) 
             # if self._listening_thread.is_alive():
             #    print("Listening thread did not stop in time.")
         
