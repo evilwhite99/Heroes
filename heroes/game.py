@@ -1,5 +1,6 @@
 import pygame
 from .hero import Hero
+from .map import Map
 
 
 class Game:
@@ -15,6 +16,7 @@ class Game:
         pygame.display.set_caption("Heroes Python")
         self.clock = pygame.time.Clock()
         self.hero = Hero("Player")
+        self.map = Map()
         self.running = True
 
     def handle_events(self):
@@ -33,13 +35,24 @@ class Game:
         if keys[pygame.K_DOWN]:
             dy = 1
         if dx or dy:
-            self.hero.move(dx, dy, self.GRID_SIZE, self.GRID_SIZE)
+            new_x = min(max(self.hero.x + dx, 0), self.GRID_SIZE - 1)
+            new_y = min(max(self.hero.y + dy, 0), self.GRID_SIZE - 1)
+            if self.map.is_walkable(new_x, new_y):
+                self.hero.move(dx, dy, self.GRID_SIZE, self.GRID_SIZE)
 
     def draw_grid(self):
         for x in range(self.GRID_SIZE):
             for y in range(self.GRID_SIZE):
-                rect = pygame.Rect(x * self.CELL_SIZE, y * self.CELL_SIZE, self.CELL_SIZE, self.CELL_SIZE)
-                color = (180, 180, 180) if (x + y) % 2 == 0 else (160, 160, 160)
+                rect = pygame.Rect(
+                    x * self.CELL_SIZE,
+                    y * self.CELL_SIZE,
+                    self.CELL_SIZE,
+                    self.CELL_SIZE,
+                )
+                if not self.map.is_walkable(x, y):
+                    color = (70, 70, 70)
+                else:
+                    color = (180, 180, 180) if (x + y) % 2 == 0 else (160, 160, 160)
                 pygame.draw.rect(self.screen, color, rect)
 
     def draw_hero(self):
