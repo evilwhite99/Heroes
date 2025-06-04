@@ -1,11 +1,13 @@
 """Entry point for the Heroes-like game."""
 
-from heroes import Game
+from heroes import Game, Menu
 
 
 def main() -> None:
-    game = Game()
-    game.run()
+    menu = Menu()
+    if menu.run():
+        game = Game()
+        game.run()
 
 
 if __name__ == "__main__":

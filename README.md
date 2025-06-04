@@ -19,4 +19,4 @@ pip install pygame
 python main.py
 ```
 
-This will open a simple grid-based map with a few blocked cells. Use the arrow keys to move the hero while avoiding obstacles. The project is still minimal and can be extended with additional gameplay mechanics.
+When launching the program a simple menu appears. Navigate with the arrow keys and press Enter to start the game or quit. After starting, a grid-based map is shown with a few blocked cells. Use the arrow keys to move the hero while avoiding obstacles. The project is still minimal and can be extended with additional gameplay mechanics.
