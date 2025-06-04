@@ -10,7 +10,7 @@ A minimal skeleton for a Heroes of Might and Magic style game built with Python 
 Install dependencies with:
 
 ```bash
-pip install pygame
+pip install -r requirements.txt
 ```
 
 ## Running the Game
